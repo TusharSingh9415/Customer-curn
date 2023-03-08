@@ -1,0 +1,354 @@
+
+  <!DOCTYPE html>
+  <html lang="en">
+  <body>
+  <script src="https://unpkg.com/gojs@2.2.16/release/go.js"></script>
+  <p>
+    Customer Curn Solution- Tushar Singh
+ 
+    
+  </p>
+  <div id="allSampleContent" class="p-4 w-full">
+  <link href="https://fonts.googleapis.com/css?family=Roboto:400,500" rel="stylesheet" type="text/css">
+    <script id="code">
+    function init() {
+
+      // Since 2.2 you can also author concise templates with method chaining instead of GraphObject.make
+      // For details, see https://gojs.net/latest/intro/buildingObjects.html
+      const $ = go.GraphObject.make;  // for conciseness in defining templates
+
+      myDiagram = $(go.Diagram, "myDiagramDiv",  // must name or refer to the DIV HTML element
+        {
+          initialContentAlignment: go.Spot.Left,
+          allowSelect: false,  // the user cannot select any part
+          // create a TreeLayout for the decision tree
+          layout: $(go.TreeLayout)
+        });
+
+      // custom behavior for expanding/collapsing half of the subtree from a node
+      function buttonExpandCollapse(e, port) {
+        var node = port.part;
+        node.diagram.startTransaction("expand/collapse");
+        var portid = port.portId;
+        node.findLinksOutOf(portid).each(l => {
+          if (l.visible) {
+            // collapse whole subtree recursively
+            collapseTree(node, portid);
+          } else {
+            // only expands immediate children and their links
+            l.visible = true;
+            var n = l.getOtherNode(node);
+            if (n !== null) {
+              n.location = node.getDocumentPoint(go.Spot.TopRight);
+              n.visible = true;
+            }
+          }
+        });
+        myDiagram.toolManager.hideToolTip();
+        node.diagram.commitTransaction("expand/collapse");
+      }
+
+      // recursive function for collapsing complete subtree
+      function collapseTree(node, portid) {
+        node.findLinksOutOf(portid).each(l => {
+          l.visible = false;
+          var n = l.getOtherNode(node);
+          if (n !== null) {
+            n.visible = false;
+            collapseTree(n, null);  // null means all links, not just for a particular portId
+          }
+        });
+      }
+
+      // get the text for the tooltip from the data on the object being hovered over
+      function tooltipTextConverter(data) {
+        var str = "";
+        var e = myDiagram.lastInput;
+        var currobj = e.targetObject;
+        if (currobj !== null && (currobj.name === "ButtonA" ||
+          (currobj.panel !== null && currobj.panel.name === "ButtonA"))) {
+          str = data.aToolTip;
+        } else {
+          str = data.bToolTip;
+        }
+        return str;
+      }
+
+      // define tooltips for buttons
+      var tooltipTemplate =
+        $("ToolTip",
+          { "Border.fill": "whitesmoke", "Border.stroke": "lightgray" },
+          $(go.TextBlock,
+            {
+              font: "8pt sans-serif",
+              wrap: go.TextBlock.WrapFit,
+              desiredSize: new go.Size(200, NaN),
+              alignment: go.Spot.Center,
+              margin: 6
+            },
+            new go.Binding("text", "", tooltipTextConverter))
+        );
+
+      // define the Node template for non-leaf nodes
+      myDiagram.nodeTemplateMap.add("decision",
+        $(go.Node, "Auto",
+          new go.Binding("text", "key"),
+          // define the node's outer shape, which will surround the Horizontal Panel
+          $(go.Shape, "Rectangle",
+            { fill: "whitesmoke", stroke: "lightgray" }),
+          // define a horizontal Panel to place the node's text alongside the buttons
+          $(go.Panel, "Horizontal",
+            $(go.TextBlock,
+              { font: "30px Roboto, sans-serif", margin: 5 },
+              new go.Binding("text", "key")),
+            // define a vertical panel to place the node's two buttons one above the other
+            $(go.Panel, "Vertical",
+              { defaultStretch: go.GraphObject.Fill, margin: 3 },
+              $("Button",  // button A
+                {
+                  name: "ButtonA",
+                  click: buttonExpandCollapse,
+                  toolTip: tooltipTemplate
+                },
+                new go.Binding("portId", "a"),
+                $(go.TextBlock,
+                  { font: '500 16px Roboto, sans-serif' },
+                  new go.Binding("text", "aText"))
+              ),  // end button A
+              $("Button",  // button B
+                {
+                  name: "ButtonB",
+                  click: buttonExpandCollapse,
+                  toolTip: tooltipTemplate
+                },
+                new go.Binding("portId", "b"),
+                $(go.TextBlock,
+                  { font: '500 16px Roboto, sans-serif' },
+                  new go.Binding("text", "bText"))
+              )  // end button B
+            )  // end Vertical Panel
+          )  // end Horizontal Panel
+        ));  // end Node and call to add
+
+      // define the Node template for leaf nodes
+      myDiagram.nodeTemplateMap.add("personality",
+        $(go.Node, "Auto",
+          new go.Binding("text", "key"),
+          $(go.Shape, "Rectangle",
+            { fill: "whitesmoke", stroke: "lightgray" }),
+          $(go.TextBlock,
+            {
+              font: '13px Roboto, sans-serif',
+              wrap: go.TextBlock.WrapFit, desiredSize: new go.Size(200, NaN), margin: 5
+            },
+            new go.Binding("text", "text"))
+        ));
+
+      // define the only Link template
+      myDiagram.linkTemplate =
+        $(go.Link, go.Link.Orthogonal,  // the whole link panel
+          { fromPortId: "" },
+          new go.Binding("fromPortId", "fromport"),
+          $(go.Shape,  // the link shape
+            { stroke: "lightblue", strokeWidth: 2 })
+        );
+
+      // create the model for the decision tree
+      var model =
+        new go.GraphLinksModel(
+          { linkFromPortIdProperty: "fromport" });
+      // set up the model with the node and link data
+      makeNodes(model);
+      makeLinks(model);
+      myDiagram.model = model;
+
+      // make all but the start node invisible
+      myDiagram.nodes.each(n => {
+        if (n.text !== "Start") n.visible = false;
+      });
+      myDiagram.links.each(l => {
+        l.visible = false;
+      });
+    }
+
+    function makeNodes(model) {
+      var nodeDataArray = [
+        { key: "Start" },  // the root node
+
+        // intermediate nodes: decisions on personality characteristics
+        { key: "I" },
+        { key: "E" },
+
+        { key: "IN" },
+        { key: "IS" },
+        { key: "EN" },
+        { key: "ES" },
+
+        { key: "INT" },
+        { key: "INF" },
+        { key: "IST" },
+        { key: "ISF" },
+        { key: "ENT" },
+        { key: "ENF" },
+        { key: "EST" },
+        { key: "ESF" },
+
+        // terminal nodes: the personality descriptions
+        {
+          key: "INTJ",
+          text: "Customers find a more cost-effective solution to the problem they want to solve, they may churn. "
+        },
+        {
+          key: "INTP",
+          text: "Keep Sending cold mails and offer notification and daily reminder."
+        },
+        {
+          key: "INFJ",
+          text: "Improving your onboarding process and communicating clearly with your users as they pass through the funnel is vital if you want to mitigate against this problem. Once customers understand how to get the most out of your product or service, they’re far more likely to stick around."
+        },
+        {
+          key: "INFP",
+          text: "Customer's experience connecting with other aspects of your brand — your marketing content, social media channels, customer support team, and account managers -- isn't positive, they may be likely to churn."
+        },
+        {
+          key: "ISTJ",
+          text: "Create an engagement plan that’s easy to follow and shows them how they can use it to reach goals early and often. Talk to your customers and find out what they want to do first and start working on a plan to help them succeed. "
+        },
+        {
+          key: "ISTP",
+          text: "Send a reminder email, pointing out all the helpful features they haven’t used yet or if they’ve been inactive for a certain amount of time. "
+        },
+        {
+          key: "ISFJ",
+          text: "Minor account changes, such as a change in address or billing information, aren’t cause for concern, however, a change in the total number of end-users should spark additional investigation on your end."
+        },
+        {
+          key: "ISFP",
+          text: "Customer Satisfaction (CSAT) and Net Promotor Scores (NPS) are two leading KPIs used to monitor and measure customer satisfaction. If a customer offers you low scores for either, it’s a strong sign that the customer is unhappy and could churn."
+        },
+        {
+          key: "ENTJ",
+          text: "A high volume of customer complaints: This is, perhaps, the most obvious warning sign of churn. If a customer has multiple complaints on file, it’s safe to assume that they’re at risk of churning. In general, a high volume of complaints is a clear indicator that something is wrong with your product, support, or overall customer experience and should prompt serious introspection."
+        },
+        {
+          key: "ENTP",
+          text: "There are any number of ways to reward customer loyalty, from offering a subscription discount to providing early access to new features and capabilities but developing a loyalty program may just be the most effective."
+        },
+        {
+          key: "ENFJ",
+          text: "A loyalty program is a good start, but another way to reward your best customers is to add a personal touch to every interaction."
+        },
+        {
+          key: "ENFP",
+          text: "At the end of the day, no one knows better about what matters to your customers than your customers, themselves."
+        },
+        {
+          key: "ESTJ",
+          text: "Make the onboarding as smooth as possible by providing demo videos and in-depth tutorials."
+        },
+        {
+          key: "ESTP",
+          text: "Build strong trust with your customers so they stay with you even if they face a few small glitches from your side."
+        },
+        {
+          key: "ESFJ",
+          text: "Help your customers understand each and every benefit and feature of your product in an easy to understand manner."
+        },
+        {
+          key: "ESFP",
+          text: "Once you have identified the at-risk customers, it is time to proactively engage with them to find out what is that they are looking for. By doing so, you can find the root cause, fix the issue and retain your customers for long."
+        }
+      ];
+
+      // Provide the same choice information for all of the nodes on each level.
+      // The level is implicit in the number of characters in the Key, except for the root node.
+      // In a different application, there might be different choices for each node, so the initialization would be above, where the Info's are created.
+      // But for this application, it makes sense to share the initialization code based on tree level.
+      for (var i = 0; i < nodeDataArray.length; i++) {
+        var d = nodeDataArray[i];
+        if (d.key === "Start") {
+          d.category = "decision";
+          d.a = "I";
+          d.aText = "Engagement Score";
+          d.aToolTip = "The Introvert is “territorial” and desires space and solitude to recover energy.  Introverts enjoy solitary activities such as reading and meditating.  25% of the population.";
+          d.b = "E";
+          d.bText = "Sessions per Month Score";
+          d.bToolTip = "The Extravert is “sociable” and is energized by the presence of other people.  Extraverts experience loneliness when not in contact with others.  75% of the population.";
+        } else {
+          switch (d.key.length) {
+            case 1:
+              d.category = "decision";
+              d.a = "N";
+              d.aText = "Number of customer starting of month";
+              d.aToolTip = "The “intuitive” person bases their lives on predictions and ingenuity.  They consider the future and enjoy planning ahead.  25% of the population.";
+              d.b = "S";
+              d.bText = "Number of customer endind of month";
+              d.bToolTip = "The “sensing” person bases their life on facts, thinking primarily of their present situation.  They are realistic and practical.  75% of the population.";
+              break;
+            case 2:
+              d.category = "decision";
+              d.a = "T";
+              d.aText = "Below then previous";
+              d.aToolTip = "The “thinking” person bases their decisions on facts and without personal bias.  They are more comfortable with making impersonal judgments.  50% of the population.";
+              d.b = "F";
+              d.bText = "Above then previous";
+              d.bToolTip = "The “feeling” person bases their decisions on personal experience and emotion.  They make their emotions very visible.  50% of the population.";
+              break;
+            case 3:
+              d.category = "decision";
+              d.a = "J";
+              d.aText = "Below 50%";
+              d.aToolTip = "The “judging” person enjoys closure.  They establish deadlines and take them seriously.  They despise being late.  50% of the population.";
+              d.b = "P";
+              d.bText = "Up 50%";
+              d.bToolTip = "The “perceiving” person likes to keep options open and fluid.  They have little regard for deadlines.  Dislikes making decisions unless they are completely sure they are right.  50% of the population.";
+              break;
+            default:
+              d.category = "personality";
+              break;
+          }
+        }
+      }
+      model.nodeDataArray = nodeDataArray;
+    }
+
+    // The key strings implicitly hold the relationship information, based on their spellings.
+    // Other than the root node ("Start"), each node's key string minus its last letter is the
+    // key to the "parent" node.
+    function makeLinks(model) {
+      var linkDataArray = [];
+      var nda = model.nodeDataArray;
+      for (var i = 0; i < nda.length; i++) {
+        var key = nda[i].key;
+        if (key === "Start" || key.length === 0) continue;
+        // e.g., if key=="INTJ", we want: prefix="INT" and letter="J"
+        var prefix = key.slice(0, key.length - 1);
+        var letter = key.charAt(key.length - 1);
+        if (prefix.length === 0) prefix = "Start";
+        var obj = { from: prefix, fromport: letter, to: key };
+        linkDataArray.push(obj);
+      }
+      model.linkDataArray = linkDataArray;
+    }
+    window.addEventListener('DOMContentLoaded', init);
+  </script>
+
+<div id="sample">
+  <div id="myDiagramDiv" style="background-color: white; border: 1px solid black; width: 100%; height: 500px; position: relative; -webkit-tap-highlight-color: rgba(255, 255, 255, 0); cursor: auto;"><canvas tabindex="0" width="1317" height="622" style="position: absolute; top: 0px; left: 0px; z-index: 2; user-select: none; touch-action: none; width: 1054px; height: 498px; cursor: auto;">This text is displayed if your browser does not support the Canvas HTML element.</canvas><div style="position: absolute; overflow: auto; width: 1054px; height: 498px; z-index: 1;"><div style="position: absolute; width: 1px; height: 1px;"></div></div></div>
+  <p>
+ Churn Rate = (The number of customers you lost in the period / The number of customers you had at the beginning of the period) X 100.
+
+  </p>
+  <p>
+ Revenue Churn Rate = [(MRP Beginning of Month - MRP End of Month) - MRP in Upgrades During Month] / Mrp Beginning of Month <a href="#" target="api"></a>.
+  </p>
+  <p>
+  Gross Revenue churn rate=
+  [(Revenue lost due to customer churn + revenue lost due to downgrades over a sepcific period)/ Total revenue upfront for renewal at the start of that period]*100
+  </p>
+  <p>
+ Customer Lifetime Value= Margin * Retention Rate / 1 + Discount Rate - Retention Rate
+  </p>
+</div>
+  </body>
+  </html>
